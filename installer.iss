@@ -1,7 +1,7 @@
 ; Inno Setup script for HIMYM Harness
-; Version 6.0.0
+; Version 7.0.0
 #define MyAppName "HIMYM Harness"
-#define MyAppVersion "6.0.0"
+#define MyAppVersion "7.0.0"
 #define MyAppPublisher "HIMYM Project"
 #define MyAppURL "http://example.com/"
 #define MyAppExe "director.py"
@@ -14,7 +14,7 @@ AppPublisherURL={#MyAppURL}
 DefaultDirName={autopf}\\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-OutputBaseFilename=HIMYMHarness-6.0.0
+OutputBaseFilename=HIMYMHarness-7.0.0
 Compression=lzma
 SolidCompression=yes
 
@@ -26,7 +26,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "director.py"; DestDir: "{app}"; Flags: ignoreversion
-Source: "himym_data\*"; DestDir: "{app}\\himym_data"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "himym_data\*"; DestDir: "{app}\himym_data"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dashboard.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "floor_day.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "floor_night.png"; DestDir: "{app}"; Flags: ignoreversion

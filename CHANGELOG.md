@@ -1,4 +1,10 @@
 # Changelog
+## v7.0.0 — The Smooth Release
+Refined pixel-art sprites: outlined, shaded, 22x30 grid with blinking eyes, swinging arms, 2-phase walk cycle
+Smooth delta-time movement with door waypoint routing, ease-out arrival, idle wander
+Living environment: TV static flicker, neon sign pulse at night, coffee steam, dust motes in window light
+No new dependencies, exe stays simple
+
 ## v6.0.0 — The Guest Star Release
 Guest-star system (drop-a-JSON hires), TF-IDF memory palace + search UI,
 work-envelope flight animations, polaroid album (persisted), voice input,
