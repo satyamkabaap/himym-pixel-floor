@@ -1,75 +1,122 @@
-# himym-pixel-floor
+# 🎬 HIMYM Pixel Floor
 
-A multi-agent harness that runs the HIMYM gang as your autonomous studio — real deliverables, pixel-art floor, zero telemetry.
+### A multi-agent harness that runs the gang as your autonomous studio
+
+**Free, open source, and legendary.** Five in-character agents — Ted, Barney,
+Marshall, Lily and Robin — coordinate themselves on a living pixel-art floor:
+they pick up **real tasks**, draft them, review each other's work, revise,
+approve and ship deliverables to your disk… while Future Ted narrates it all.
+
+> **The world's most legendary agents. The world's most sitcom workplace.**
+
+![CI](https://img.shields.io/github/actions/workflow/status/satyamkabaap/himym-pixel-floor/ci.yml?style=flat-square)
+![Release](https://img.shields.io/github/v/release/satyamkabaap/himym-pixel-floor?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)
+![Python](https://img.shields.io/badge/python-3.9+-yellow.svg?style=flat-square)
+
+**⬇ [Download the Windows installer](../../releases)** — no Python needed.
+Or `python director.py` and you're live in 5 seconds.
+
+---
+
+![Day floor](docs/screenshots/floor_day.png)
+![Night floor](docs/screenshots/floor_night.png)
+
+## Wait, what is this?
+
+HIMYM Pixel Floor wraps five LLM personas in a **hive**: shared memory, a task
+pipeline, and a GOD orchestrator (Future Ted). Every agent is an avatar on a
+hand-painted day/night floor — they walk between the apartment and MacLaren's,
+chat, drink scotch, and **actually work**: every approved task becomes a
+markdown deliverable in `himym_data/outputs/`.
+
+- **Every persona is an agent.** In-character writers, reviewers, legal, creative and research — with your LLM or fully offline fallbacks.
+- **Every agent is an avatar.** Procedural pixel sprites on AI-painted floors that shift with the sim's day/night cycle.
+- **The hive coordinates them.** Queue → draft → review → revise → approve, with a collab graph that thickens as pairs ship work together.
+- **Real work ships.** No theater. Approved tasks are saved as files you can open.
 
 ## Features
 
-- **Multi-agent simulation**: Ted, Barney, Marshall, Lily, and Robin as autonomous agents.
-- **Pixel-art floor**: Dynamic day/night cycle with pixel-art aesthetics.
-- **Integrated engines**: Automation Engine (v3) and Episode Engine (v4) unified.
-- **Friendship system**: Agents review each other's work and build friendships.
-- **Episode-triggered work**: Episodes spawn follow-up tasks.
-- **Shared achievements and collaboration graph**.
-- **Zero telemetry**: Everything runs locally, no data leaves your machine.
-- **Installer-ready**: Includes Inno Setup script for one-click Windows installation.
+| | |
+|---|---|
+| **Talk to one narrator, not five** | Future Ted (GOD) assigns, routes and narrates. You brief the floor, not individuals. |
+| **Full automation** | Auto-tasks when idle, `.txt` drops into `inbox/`, or the UI queue (`POST /api/task`). |
+| **Draft → Review → Revise → Approve** | Marshall reviews contracts, Lily signs off on design, Barney makes it legendary. |
+| **Deliverables on disk** | `outputs/task_007_marshall.md` — draft + in-character review, every time. |
+| **Day/night pixel art** | Two AI-painted floors (apartment + MacLaren's) swapped by sim time. |
+| **Memory that survives** | Markdown-first memory store persists across runs and sessions. |
+| **One-click installer** | Inno Setup wizard, per-user install, desktop icon, uninstaller. |
+| **Zero telemetry** | Everything runs on your machine. Nothing phones home. Ever. |
 
-## Quick Start
+## Quick start
 
-1. Download the latest release from the [Releases page](https://github.com/YOURNAME/himym-pixel-floor/releases).
-2. Run the installer (`himym-harness-installer.exe`).
-3. Launch the application from the Start menu or desktop shortcut.
-4. Watch the agents collaborate in real-time via the dashboard at `http://localhost:8000/dashboard.html`.
+**Option A — Installer (Windows):** grab `HIMYM_PixelFloor_Setup_*.exe` from
+[Releases](../../releases), run it, done.
 
-## Configuration
-
-To enable the local LLM (FreeLLMAPI on port 3001), create a file `himym_data/llm_key.txt` containing your API key.
-The app will automatically pick it up. If the file is missing, the agents will use built-in quips for dialogue.
-
-## Building from Source
-
-### Prerequisites
-
-- Python 3.8+
-- [Inno Setup](https://jrsoftware.org/isinfo.php) (for building the installer)
-
-### Steps
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/YOURNAME/himym-pixel-floor.git
-   cd himym-pixel-floor
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Run the simulation:
-   ```bash
-   python director.py
-   ```
-4. Open the dashboard:
-   ```
-   http://localhost:8000/dashboard.html
-   ```
-
-### Building the Installer
-
-Run the provided batch script:
+**Option B — From source:**
 ```bash
-build_installer.bat
+git clone https://github.com/satyamkabaap/himym-pixel-floor.git
+cd himym-pixel-floor
+pip install requests
+python director.py        # serves + auto-opens the dashboard
 ```
-This will produce `himym-harness-installer.exe` in the `installer_output/` directory.
+
+**Option C — Build everything yourself:**
+```bash
+build_installer.bat       # exe + setup.exe in one click
+```
+
+## How it works
+
+```
+        you ── queue / inbox / auto ──► ┌──────────────┐
+                                        │  FUTURE TED  │  GOD · narrator
+                                        │  (director)  │  routing · pipeline
+                                        └──────┬───────┘
+                          assign · review · approve · narrate
+        ┌──────────┬──────────┬──────────┼────────────────────┐
+        ▼          ▼          ▼          ▼          ▼          ▼
+   ┌────────┐ ────────┐ ┌─────────┐ ┌────────┐ ┌────────┐
+   │  Ted   │ │ Barney │ │ Marshall│ │  Lily  │ │ Robin  │
+   │ writer │ │  hype  │ │  legal  │ │creative│ │research│
+   └───┬────┘ └───┬────┘ └───┬─────┘ └───┬────┘ └───┬────┘
+       └────────── shared hive: memory · tasks · outputs ──────────┘
+```
+
+A shipped deliverable looks like this:
+
+```md
+# Task 007: Draft the official slap bet contract
+
+## Draft by marshall
+- Clause 1: be excellent to each other
+- Clause 2: sandwiches mandatory
+- Risk assessment: low, vibes high
+
+## Review by lily
+APPROVE: chef's kiss.
+```
+
+## Roadmap
+
+- [ ] Slack / Telegram intake (message the booth, get deliverables back)
+- [ ] Parallel workers + task dependencies (kanban v2)
+- [ ] Voice narration — Future Ted reads the terminal (TTS)
+- [ ] Scripted "episodes" — seasonal arcs (Slapsgiving, the wedding)
+- [ ] Custom character plugins (bring your own sitcom)
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — good first areas: new
+fallback dialogue, new floor props, new events, translations.
+**Every PR must show a before and an after.**
 
-## License
+## License & love
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- Code: **MIT** — see [`LICENSE`](LICENSE).
+- Floor art: AI-generated for this project; sprites drawn procedurally.
+- Fonts: Pixelify Sans & VT323 (SIL OFL).
+- Inspired by [`chaitanyagiri/munder-difflin`](https://github.com/chaitanyagiri/munder-difflin).
 
-## Acknowledgments
-
-- Inspired by the television show *How I Met Your Mother*.
-- Pixel art floor by [LimeZu](https://limezu.com/) (adapted).
-- Special thanks to the open-source community.
+_An affectionate fan parody. Not affiliated with CBS, 20th Television, or the
+creators of How I Met Your Mother._
