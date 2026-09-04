@@ -1,0 +1,20 @@
+# runtime data (app creates these)
+himym_data/
+world_state.json
+sim_data.json
+memory_store.json
+relationships.json
+achievements.json
+tasks.json
+
+# python / build artifacts
+__pycache__/
+*.pyc
+*.spec
+build/
+dist/
+installer_output/
+
+# secrets
+llm_key.txt
+.env
