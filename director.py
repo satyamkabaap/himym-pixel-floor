@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
+"""HIMYM Pixel Floor - Definitive Harness v8"""
 import json, time, os, sys, random, shutil, socket, threading, webbrowser, math, zlib
+import argparse, signal, tempfile
 import requests
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime, timedelta
 
-__version__="6.0.0"
+__version__="8.1.0"
 if getattr(sys,'frozen',False):
     BASE_DIR=os.path.dirname(sys.executable); RES_DIR=sys._MEIPASS
 else:
@@ -56,23 +59,28 @@ EPISODES=[
    {"focus":"robin","loc":"Bar","lines":[("robin","Fact-check: you're not a billionaire. Nice try.")]},
    {"focus":"barney","loc":"Booth","lines":[("barney","...Challenge accepted.")],
     "end":"Kids, never let them watch you revise the playbook."}]}
-]
-
 def tok(s): return [w for w in ''.join(c if c.isalnum() else ' ' for c in (s or '')).lower().split() if len(w)>3]
-
+def atomic_json(path,obj):
+    fd,tmp=tempfile.mkstemp(dir=os.path.dirname(path) or '.',suffix='.tmp')
+    try:
+        with os.fdopen(fd,'w',encoding='utf-8') as f: json.dump(obj,f,indent=2)
+        os.replace(tmp,path)
+    except Exception:
+        try: os.remove(tmp)
+        except Exception: pass
+        raise
 class HIMYMDirector:
-    def __init__(self):
+    def __init__(self,cfg):
+        self.cfg=cfg; self.boot=time.time(); self.lock=threading.RLock(); self.running=True
         self.data_file=DATA_DIR+'/sim_data.json'; self.memory_file=DATA_DIR+'/memory_store.json'
         self.tasks_file=DATA_DIR+'/tasks.json'; self.rel_file=DATA_DIR+'/relationships.json'
-        self.ach_file=DATA_DIR+'/achievements.json'; self.outputs_dir=DATA_DIR+'/outputs'; self.inbox=DATA_DIR+'/inbox'
+        self.ach_file=DATA_DIR+'/achievements.json'; self.event_log=DATA_DIR+'/events.jsonl'
+        self.outputs_dir=DATA_DIR+'/outputs'; self.inbox=DATA_DIR+'/inbox'
         self.agents=["ted","barney","marshall","lily","robin"]
         self.locations={"Apartment":["LivingRoom","Kitchen","Bedroom"],"MacLarens":["Bar","Booth"]}
-        self.llm_url="http://127.0.0.1:3001/v1/chat/completions"
-        self.llm_key=os.environ.get("HIMYM_LLM_KEY","")
-        _kf=os.path.join(DATA_DIR,"llm_key.txt")
-        if not self.llm_key and os.path.exists(_kf): self.llm_key=open(_kf).read().strip()
         self.sim_start=datetime.now(); self.time_scale=30; self.tick=0; self.day=1
         self.weather='clear'; self.memory={}; self.ep=None; self.recap=None; self.recap_n=0
+        self.llm_fail=0; self.llm_open_until=0
         self.stats={'tasks_done':0,'reviews':0,'revisions':0,'total_slaps':0,'total_legendary':0}
         self.achievements={k:False for k in ['first_slap','slap_10','all_legendary','playbook_used','first_ship','ship_10','group_photo','full_house']}
         self.collab={a:{b:0 for b in self.agents} for a in self.agents}
@@ -82,57 +90,57 @@ class HIMYMDirector:
             "marshall":{"ted":90,"barney":60,"lily":100,"robin":75},
             "lily":{"ted":85,"barney":65,"marshall":100,"robin":80},
             "robin":{"ted":70,"barney":55,"marshall":75,"lily":80}}
-        self.guests={}; self.tasks=[]; self.events=[]; self.auto=True
+        self.guests={}; self.tasks=[]; self.events=[]; self.auto=cfg.get('auto',True)
+        self.last_group_photo=0
         self.load_persistent(); self.scan_guests()
         if os.path.exists(self.tasks_file):
-            try: self.tasks=json.load(open(self.tasks_file))
+            try: self.tasks=json.load(open(self.tasks_file,encoding='utf-8'))
             except Exception: pass
         if not os.path.exists(self.memory_file):
-            json.dump({a:[] for a in self.agents}, open(self.memory_file,'w'), indent=2)
-
+            atomic_json(self.memory_file,{a:[] for a in self.agents})
     # ---------- persistence ----------
     def load_persistent(self):
         try:
-            if os.path.exists(self.rel_file): self.relationships.update(json.load(open(self.rel_file)))
+            if os.path.exists(self.rel_file): self.relationships.update(json.load(open(self.rel_file,encoding='utf-8')))
             if os.path.exists(self.ach_file):
-                d=json.load(open(self.ach_file)); self.achievements.update(d.get('achievements',{})); self.stats.update(d.get('stats',{}))
+                d=json.load(open(self.ach_file,encoding='utf-8')); self.achievements.update(d.get('achievements',{})); self.stats.update(d.get('stats',{}))
         except Exception: pass
     def save_persistent(self):
-        json.dump(self.relationships, open(self.rel_file,'w'), indent=2)
-        json.dump({'achievements':self.achievements,'stats':self.stats}, open(self.ach_file,'w'), indent=2)
-    def log(self,m): self.events.append({'t':datetime.now().strftime('%H:%M:%S'),'m':m}); print('  ⚡',m)
+        atomic_json(self.rel_file,self.relationships)
+        atomic_json(self.ach_file,{'achievements':self.achievements,'stats':self.stats})
+    def log(self,m):
+            e={'t':datetime.now().strftime('%H:%M:%S'),'m':m}; self.events.append(e)
+            try:
+                with open(self.event_log,'a',encoding='utf-8') as f: f.write(json.dumps(e,ensure_ascii=False)+'\n')
+                if len(self.events)%200==0:
+                    open(self.event_log,'w',encoding='utf-8').writelines(open(self.event_log,encoding='utf-8').readlines()[-500:])
+            except Exception: pass
+            print('  ⚡',m)
     def unlock(self,k):
         if not self.achievements.get(k): self.achievements[k]=True; self.log(f'🏆 Achievement: {k}!')
-    def save_tasks(self): json.dump(self.tasks, open(self.tasks_file,'w'), indent=2)
-
-    # ---------- guest stars (community-extensible cast) ----------
+    def save_tasks(self): atomic_json(self.tasks_file,self.tasks)
+    # ---------- guests ----------
     def scan_guests(self):
         for f in sorted(os.listdir(DATA_DIR+'/guests')):
             if f.endswith('.json'):
                 n=f[:-5]
                 if n not in self.guests:
-                    try: data=json.load(open(DATA_DIR+'/guests/'+f))
+                    try: data=json.load(open(DATA_DIR+'/guests/'+f,encoding='utf-8'))
                     except Exception: continue
                     i=zlib.crc32(n.encode())
                     P=['#c84c46','#547aa8','#4fa16a','#d99a2b','#9370db','#d7607e','#4a6fa5','#8a5a3a']
                     self.guests[n]={'label':n.capitalize(),'role':data.get('role','guest star'),
-                        'persona':data.get('persona','A familiar face from the bar.'),
-                        'long':bool(data.get('long')),
+                        'persona':data.get('persona','A familiar face from the bar.'),'long':bool(data.get('long')),
                         'skin':['#e6b88d','#edc195','#e7bb91','#8d5a3b'][i%4],'hair':P[(i>>3)%8],
                         'jacket':P[i%8],'shirt':'#f2f4f6','pants':'#273344','h':.98+((i>>6)%3)*.06}
-                    for a in list(self.relationships)+[n]:
-                        self.relationships.setdefault(a,{})
-                        self.relationships[a].setdefault(n, 60 if a!=n else 0)
-                    self.relationships.setdefault(n,{n:0})
-                    for a in self.relationships[n]: pass
-                    for a in self.agents+list(self.guests): self.relationships[n].setdefault(a,62)
+                    for a in list(self.relationships): self.relationships[a].setdefault(n,62)
+                    self.relationships.setdefault(n,{x:62 for x in self.agents}); self.relationships[n][n]=0
                     self.collab.setdefault(n,{a:0 for a in self.agents})
                     self.log(f'🌟 guest star hired: {n}!')
                     if len(self.agents)+len(self.guests)>=7: self.unlock('full_house')
     @property
     def cast_names(self): return self.agents+list(self.guests)
-
-    # ---------- memory palace (TF-IDF semantic recall) ----------
+    # ---------- memory palace ----------
     def search_memory(self,query,k=2):
         docs=[(a,m) for a in self.cast_names for m in self.memory.get(a,[])]
         qw=set(tok(query))
@@ -150,11 +158,12 @@ class HIMYMDirector:
                 if tf: sc+=tf*math.log(1+N/df.get(w,1))
             if sc>0: best.append((sc,a,m))
         best.sort(key=lambda x:-x[0]); return best[:k]
-
+    # ---------- intake ----------
     def add_task(self,text,src='user'):
-        tid=max([t['id'] for t in self.tasks],default=0)+1
-        self.tasks.append({'id':tid,'text':text,'stage':'queued','worker':None,'reviewer':None,'draft':'','review':'','revisions':0})
-        self.tasks=self.tasks[-12:]; self.save_tasks(); self.log(f'📥 task #{tid} queued ({src}): {text[:60]}'); return tid
+        with self.lock:
+            tid=max([t['id'] for t in self.tasks],default=0)+1
+            self.tasks.append({'id':tid,'text':text,'stage':'queued','worker':None,'reviewer':None,'draft':'','review':'','revisions':0})
+            self.tasks=self.tasks[-12:]; self.save_tasks(); self.log(f'📥 task #{tid} queued ({src}): {text[:60]}'); return tid
     def scan_inbox(self):
         for f in sorted(os.listdir(self.inbox)):
             if f.endswith(('.txt','.md')):
@@ -167,21 +176,29 @@ class HIMYMDirector:
     def weekday(self): return WEEK[(self.day-1)%7]
     def persona(self,n):
         if n in self.guests: return self.guests[n]['persona']
-        try: return json.load(open(DATA_DIR+f'/personas/{n}.json'))['persona']
+        try: return json.load(open(DATA_DIR+f'/personas/{n}.json',encoding='utf-8'))['persona']
         except Exception: return DEFAULT_PERSONAS.get(n,{}).get('persona','A loyal friend.')
+    # ---------- LLM with circuit breaker ----------
     def llm(self,agent,prompt):
-        if not self.llm_key: return None
+        key=self.cfg.get('llm_key','')
+        if not key or time.time()<self.llm_open_until: return None
         try:
-            r=requests.post(self.llm_url,headers={"Authorization":f"Bearer {self.llm_key}"},
+            r=requests.post(self.cfg['llm_url'],headers={"Authorization":f"Bearer {key}"},
                 json={"model":"local-model","messages":[{"role":"system","content":self.persona(agent)},{"role":"user","content":prompt}]},timeout=2)
-            if r.status_code==200: return r.json()['choices'][0]['message']['content'].strip().strip('"')
-        except Exception: pass
-        return None
+            if r.status_code==200:
+                self.llm_fail=0; return r.json()['choices'][0]['message']['content'].strip().strip('"')
+            raise ValueError(r.status_code)
+        except Exception:
+            self.llm_fail+=1
+            if self.llm_fail>=5:
+                self.llm_open_until=time.time()+60; self.llm_fail=0
+                self.log('🔌 LLM breaker open — in-character fallback for 60s')
+            return None
     def recall_line(self,name,context):
         hits=self.search_memory(context,1)
         if hits and random.random()<0.5:
             a,m=hits[0][1],hits[0][2]
-            return f"Still thinking about when {a} was {m.get('status','hanging')} in {m.get('sub','the bar')}."
+            return f"Still thinking about when {a} was {m.get('status','hanging')} in {m.get('sub','the bar')}." 
         return random.choice(QUIPS.get(name,["..."]))
     def update_rel(self,a,b,d):
         for x,y in ((a,b),(b,a)):
@@ -211,8 +228,7 @@ class HIMYMDirector:
         if rv=='marshall': return random.choice(['APPROVE: legally airtight. Also, awesome.','REVISE: needs a sandwich clause.']) if first else 'APPROVE: good enough for my court.'
         if rv in self.guests: return random.choice(['APPROVE: house approves.','REVISE: one more pass, sweetheart.'])
         return random.choice(['APPROVE: chef\'s kiss.','REVISE: more wine, less beige.']) if first else 'APPROVE: fine, I love it.'
-
-    # ---------- work pipeline (envelope fx) ----------
+    # ---------- pipeline ----------
     def step_tasks(self):
         applies=[]; fx=[]
         if self.auto and not self.ep and not [t for t in self.tasks if t['stage']!='done'] and random.random()<0.5:
@@ -239,8 +255,8 @@ class HIMYMDirector:
                     self.unlock('first_ship')
                     if self.stats['tasks_done']>=10: self.unlock('ship_10')
                     fn=f'task_{t["id"]:03d}_{t["worker"]}.md'
-                    open(os.path.join(self.outputs_dir,fn),'w',encoding='utf-8').write(
-                        f'# Task {t["id"]}: {t["text"]}\n\n## Draft by {t["worker"]}\n{t["draft"]}\n\n## Review by {t["reviewer"]}\n{t["review"]}\n')
+                    with open(os.path.join(self.outputs_dir,fn),'w',encoding='utf-8') as f:
+                        f.write(f'# Task {t["id"]}: {t["text"]}\n\n## Draft by {t["worker"]}\n{t["draft"]}\n\n## Review by {t["reviewer"]}\n{t["review"]}\n')
                     fx.append({'k':'ship','a':t['reviewer']})
                     applies+=[(t['worker'],'Legendary-ing','Done! Saved to outputs.'),(t['reviewer'],'Chatting',t['review'][:60])]
                     self.log(f'✅ #{t["id"]} approved → outputs/{fn}')
@@ -254,13 +270,13 @@ class HIMYMDirector:
                 t['draft']=(self.llm(t['worker'],f'Improve using feedback. Feedback: {t["review"][:200]} Draft: {t["draft"][:200]}') or t['draft']+'\n- revised: addressed all notes')
                 t['stage']='reviewing'
         self.save_tasks(); return applies,fx
-
     # ---------- episodes ----------
     def start_episode(self,eid):
-        ep=next((e for e in EPISODES if e['id']==eid),None)
-        if ep and not self.ep:
-            self.ep={'d':ep,'act':0,'tick':0}; self.log(f'🎬 episode started: {ep["title"]}'); return True
-        return False
+        with self.lock:
+            ep=next((e for e in EPISODES if e['id']==eid),None)
+            if ep and not self.ep:
+                self.ep={'d':ep,'act':0,'tick':0}; self.log(f'🎬 episode started: {ep["title"]}'); return True
+            return False
     def step_episode(self,agent_data):
         e=self.ep; acts=e['d']['acts']; act=acts[e['act']]; fx=[]
         if e['tick']==0:
@@ -287,11 +303,10 @@ class HIMYMDirector:
                 self.add_task(f"Write a recap toast for '{e['d']['title']}'",'episode')
                 self.ep=None; self.log('🎬 episode wrapped → follow-up task + polaroid')
         return out,fx
-
     # ---------- main loop ----------
     def run_simulation(self):
-        print(f'🎬 HIMYM engine v{__version__} — guest stars · memory palace · weekly schedule. Close window to stop.\n')
-        while True:
+        print(f'🎬 HIMYM harness v{__version__} running. Ctrl+C to stop.\n')
+        while self.running:
             try:
                 self.tick+=1
                 if self.tick%20==0: self.scan_guests()
@@ -301,48 +316,72 @@ class HIMYMDirector:
                 tod=self.tod(); self.scan_inbox()
                 loc='MacLarens' if tod in('evening','night') else 'Apartment'
                 if random.random()<0.12: loc='Apartment' if loc=='MacLarens' else 'MacLarens'
-                with open(self.memory_file) as f: self.memory=json.load(f)
+                with open(self.memory_file,encoding='utf-8') as f: self.memory=json.load(f)
                 agent_data={}
                 for a in self.cast_names:
                     agent_data[a]={'status':random.choice(['Idle','Drinking','Chatting'] if tod in('evening','night') else ['Idle','Working','Chatting']),
                         'sub_location':random.choice(self.locations[loc]),'last_dialogue':self.recall_line(a,f"{tod} at {loc}"),
                         'memory':self.memory.get(a,[])[-3:],'conversation_partner':None,'time_of_day':tod}
                 fx=[]
-                applies,fx2=self.step_tasks(); fx+=fx2
-                for name,status,dlg in applies:
-                    if name in agent_data: agent_data[name]['status']=status; agent_data[name]['last_dialogue']=dlg
-                # weekly schedule heartbeat
-                if tod=='evening' and not self.ep:
-                    ev=SCHED.get(self.weekday())
-                    if ev and random.random()<0.5:
-                        if ev[1]=='wings':
-                            for a in agent_data: agent_data[a]['status']='Drinking'
-                            fx.append({'k':'confetti'}); self.log('🍗 Wing Night at MacLaren\'s!')
-                        elif ev[1]=='brunch':
-                            for a in agent_data: agent_data[a]['sub_location']='LivingRoom'; agent_data[a]['status']='Chatting'
-                            self.log('🥞 Brunch at the apartment!')
-                        else: self.start_episode(ev[1])
-                ep_out=None
-                if self.auto and not self.ep and random.random()<0.10:
-                    self.start_episode(random.choice(EPISODES)['id'])
-                if self.ep:
-                    ep_out,efx=self.step_episode(agent_data); fx+=efx
-                # group photo detection
-                if len(set(x['sub_location'] for x in agent_data.values()))==1 and self.tick%5==0:
-                    fx.append({'k':'photo'}); self.unlock('group_photo'); self.log('📸 group photo!')
-                json.dump({'location':loc,'agents':agent_data,'logs':self.events[-20:],'stats':self.stats,
-                    'collab':self.collab,'relationships':self.relationships,'achievements':self.achievements,
-                    'guests':self.guests,'memory_all':{a:self.memory.get(a,[])[-10:] for a in self.cast_names},
-                    'tasks':[{'id':t['id'],'text':t['text'],'stage':t['stage'],'worker':t['worker'],'reviewer':t['reviewer']} for t in self.tasks[-8:]],
-                    'episode':ep_out,'recap':self.recap,'fx':fx,'day':self.day,'weekday':self.weekday(),
-                    'weather':(self.ep and self.ep['d'].get('weather')) or self.weather,
-                    'sim_time':(self.sim_start+timedelta(seconds=self.tick*self.time_scale)).isoformat(),'time_of_day':tod},
-                    open(self.data_file,'w'), indent=2)
+                with self.lock:
+                    applies,fx2=self.step_tasks(); fx+=fx2
+                    for name,status,dlg in applies:
+                        if name in agent_data: agent_data[name]['status']=status; agent_data[name]['last_dialogue']=dlg
+                    if tod=='evening' and not self.ep:
+                        ev=SCHED.get(self.weekday())
+                        if ev and random.random()<0.5:
+                            if ev[1]=='wings':
+                                for a in agent_data: agent_data[a]['status']='Drinking'
+                                fx.append({'k':'confetti'}); self.log('🍗 Wing Night at MacLaren\'s!')
+                            elif ev[1]=='brunch':
+                                for a in agent_data: agent_data[a]['sub_location']='LivingRoom'; agent_data[a]['status']='Chatting'
+                                self.log('🥞 Brunch at the apartment!')
+                            else: self.start_episode(ev[1])
+                    ep_out=None
+                    if self.auto and not self.ep and random.random()<0.10:
+                        self.start_episode(random.choice(EPISODES)['id'])
+                    if self.ep:
+                        ep_out,efx=self.step_episode(agent_data); fx+=efx
+                if len(set(x['sub_location'] for x in agent_data.values()))==1 and self.tick-self.last_group_photo>20:
+                                    self.last_group_photo=self.tick
+                                    fx.append({'k':'photo'}); self.unlock('group_photo'); self.log('📸 group photo!')
+                atomic_json(self.data_file, {
+                    'location': loc,
+                    'agents': agent_data,
+                    'logs': self.events[-20:],
+                    'stats': self.stats,
+                    'collab': self.collab,
+                    'relationships': self.relationships,
+                    'achievements': self.achievements,
+                    'guests': self.guests,
+                    'memory_all': {a: self.memory.get(a, [])[-10:] for a in self.cast_names},
+                    'tasks': [
+                        {
+                            'id': t['id'],
+                            'text': t['text'],
+                            'stage': t['stage'],
+                            'worker': t['worker'],
+                            'reviewer': t['reviewer']
+                        }
+                        for t in self.tasks[-8:]
+                    ],
+                    'episode': ep_out,
+                    'recap': self.recap,
+                    'fx': fx,
+                    'day': self.day,
+                    'weekday': self.weekday(),
+                    'weather': (self.ep and self.ep['d'].get('weather')) or self.weather,
+                    'sim_time': (self.sim_start + timedelta(seconds=self.tick * self.time_scale)).isoformat(),
+                    'time_of_day': tod
+                })
                 self.save_persistent()
                 print(f'📍 {loc} ({tod}) {self.weekday()} | cast:{len(self.cast_names)} ships:{self.stats["tasks_done"]}')
-                time.sleep(3)
-            except KeyboardInterrupt: print('\n👋 Stopped.'); self.save_persistent(); break
-            except Exception as e: print('⚠️',e); time.sleep(2)
+                time.sleep(self.cfg.get('tick_seconds',3))
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print('⚠️',e); time.sleep(2)
+        print('\n👋 Stopped — saving state.'); self.save_persistent(); self.save_tasks()
 
 DIRECTOR=None
 class Handler(SimpleHTTPRequestHandler):
@@ -350,17 +389,27 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(s,*a): pass
     def do_POST(s):
         ok=False
-        if s.path.startswith(('/api/task','/api/episode')):
+                if s.path.startswith('/api/auto'):
+                    n=int(s.headers.get('Content-Length',0))
+                    try: j=json.loads(s.rfile.read(n).decode())
+                    except Exception: j={}
+                    DIRECTOR.auto=bool(j.get('on',True)); ok=True
+                elif s.path.startswith(('/api/task','/api/episode')):
             n=int(s.headers.get('Content-Length',0))
             try: j=json.loads(s.rfile.read(n).decode())
             except Exception: j={}
-            ok = DIRECTOR.add_task((j.get('text') or '').strip(),'ui') if s.path.startswith('/api/task') and (j.get('text') or '').strip() else DIRECTOR.start_episode(j.get('id',''))
+            if s.path.startswith('/api/task') and (j.get('text') or '').strip():
+                ok=bool(DIRECTOR.add_task(j['text'].strip(),'ui'))
+            else:
+                ok=DIRECTOR.start_episode(j.get('id',''))
         s.send_response(200); s.send_header('Content-Type','application/json'); s.end_headers()
         s.wfile.write(json.dumps({'ok':bool(ok)}).encode())
     def do_GET(s):
         if s.path.startswith('/api/health'):
             s.send_response(200); s.send_header('Content-Type','application/json'); s.end_headers()
-            s.wfile.write(json.dumps({'ok':True,'version':__version__,'day':DIRECTOR.day,'cast':DIRECTOR.cast_names}).encode())
+            s.wfile.write(json.dumps({'ok':True,'version':__version__,'day':DIRECTOR.day,
+                'uptime_s':int(time.time()-DIRECTOR.boot),'cast':DIRECTOR.cast_names,
+                'llm_breaker_open':time.time()<DIRECTOR.llm_open_until}).encode())
         else: super().do_GET()
 
 def setup_assets():
@@ -369,19 +418,43 @@ def setup_assets():
         if os.path.exists(src): shutil.copy(src, os.path.join(DATA_DIR,f))
     for n,p in DEFAULT_PERSONAS.items():
         dst=DATA_DIR+f'/personas/{n}.json'
-        if not os.path.exists(dst): json.dump(p,open(dst,'w'),indent=2)
+        if not os.path.exists(dst): atomic_json(dst,p)
     for n,p in DEFAULT_GUESTS.items():
         dst=DATA_DIR+f'/guests/{n}.json'
-        if not os.path.exists(dst): json.dump(p,open(dst,'w'),indent=2)
+        if not os.path.exists(dst): atomic_json(dst,p)
+    cfgp=DATA_DIR+'/config.json'
+    if not os.path.exists(cfgp):
+        atomic_json(cfgp,{"llm_url":"@url:`http://127.0.0.1:3001/v1/chat/completions`","tick_seconds":3,"auto":True,
+            "_help":"Set HIMYM_LLM_KEY env var or himym_data/llm_key.txt to enable the LLM. Never put keys in this file."})
+
+def find_port(want=0):
+    if want: return want
+    for p in range(8000,8010):
+        try: s=socket.socket(); s.bind(("127.0.0.1",p)); s.close(); return p
+        except OSError: continue
+    return 8000
 
 if __name__=='__main__':
-    setup_assets(); DIRECTOR=HIMYMDirector()
-    port=8000
-    for p in range(8000,8010):
-        try: s=socket.socket(); s.bind(("127.0.0.1",p)); s.close(); port=p; break
-        except OSError: continue
+    ap=argparse.ArgumentParser(description='HIMYM Pixel Floor harness')
+    ap.add_argument('--port',type=int,default=0); ap.add_argument('--no-browser',action='store_true')
+    ap.add_argument('--seed',type=int,default=None); ap.add_argument('--version',action='store_true')
+    args=ap.parse_args()
+    if args.version: print(__version__); sys.exit(0)
+    if args.seed is not None: random.seed(args.seed)
+    setup_assets()
+    cfg={"llm_url":"@url:`http://127.0.0.1:3001/v1/chat/completions`","tick_seconds":3,"auto":True}
+    try: cfg.update(json.load(open(DATA_DIR+'/config.json',encoding='utf-8')))
+    except Exception: pass
+    cfg['llm_key']=os.environ.get('HIMYM_LLM_KEY','')
+    if not cfg['llm_key'] and os.path.exists(DATA_DIR+'/llm_key.txt'):
+        cfg['llm_key']=open(DATA_DIR+'/llm_key.txt',encoding='utf-8').read().strip()
+    DIRECTOR=HIMYMDirector(cfg)
+    DIRECTOR.running=True
+    signal.signal(signal.SIGTERM, lambda *a: setattr(DIRECTOR,'running',False))
+    port=find_port(args.port)
     httpd=HTTPServer(("127.0.0.1",port),Handler)
     threading.Thread(target=httpd.serve_forever,daemon=True).start()
-    print('='*56); print(f'  HIMYM PIXEL FLOOR v{__version__} — THE GUEST STAR RELEASE'); print(f'  http://localhost:{port}/dashboard.html'); print('='*56)
-    threading.Timer(1.2,lambda:webbrowser.open(f'http://localhost:{port}/dashboard.html')).start()
-    DIRECTOR.run_simulation(); httpd.shutdown()
+    print('='*56); print(f'  HIMYM PIXEL FLOOR v{__version__} — THE DEFINITIVE HARNESS'); print(f'  @url:`http://localhost`:{port}/dashboard.html'); print('='*56)
+    if not args.no_browser: threading.Timer(1.2,lambda:webbrowser.open(f'@url:`http://localhost`:{port}/dashboard.html')).start()
+    try: DIRECTOR.run_simulation()
+    finally: httpd.shutdown()

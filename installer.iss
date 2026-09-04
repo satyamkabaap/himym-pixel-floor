@@ -1,7 +1,7 @@
 ; Inno Setup script for HIMYM Harness
 ; Version 7.0.0
 #define MyAppName "HIMYM Harness"
-#define MyAppVersion "7.0.0"
+#define MyAppVersion "8.1.0"
 #define MyAppPublisher "HIMYM Project"
 #define MyAppURL "http://example.com/"
 #define MyAppExe "director.py"
