@@ -59,6 +59,7 @@ EPISODES=[
    {"focus":"robin","loc":"Bar","lines":[("robin","Fact-check: you're not a billionaire. Nice try.")]},
    {"focus":"barney","loc":"Booth","lines":[("barney","...Challenge accepted.")],
     "end":"Kids, never let them watch you revise the playbook."}]}
+]
 def tok(s): return [w for w in ''.join(c if c.isalnum() else ' ' for c in (s or '')).lower().split() if len(w)>3]
 def atomic_json(path,obj):
     fd,tmp=tempfile.mkstemp(dir=os.path.dirname(path) or '.',suffix='.tmp')
@@ -389,12 +390,29 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(s,*a): pass
     def do_POST(s):
         ok=False
-                if s.path.startswith('/api/auto'):
-                    n=int(s.headers.get('Content-Length',0))
-                    try: j=json.loads(s.rfile.read(n).decode())
-                    except Exception: j={}
-                    DIRECTOR.auto=bool(j.get('on',True)); ok=True
-                elif s.path.startswith(('/api/task','/api/episode')):
+        if s.path.startswith('/api/auto'):
+            n=int(s.headers.get('Content-Length',0))
+            try: j=json.loads(s.rfile.read(n).decode())
+            except Exception: j={}
+            DIRECTOR.auto=bool(j.get('on',True)); ok=True
+        elif s.path.startswith(('/api/task','/api/episode')):
+            n=int(s.headers.get('Content-Length',0))
+            try: j=json.loads(s.rfile.read(n).decode())
+            except Exception: j={}
+            if s.path.startswith('/api/task') and (j.get('text') or '').strip():
+                ok=bool(DIRECTOR.add_task(j['text'].strip(),'ui'))
+            else:
+                ok=DIRECTOR.start_episode(j.get('id',''))
+        s.send_response(200); s.send_header('Content-Type','application/json'); s.end_headers()
+        s.wfile.write(json.dumps({'ok':bool(ok)}).encode())
+    def do_POST(s):
+        ok=False
+        if s.path.startswith('/api/auto'):
+            n=int(s.headers.get('Content-Length',0))
+            try: j=json.loads(s.rfile.read(n).decode())
+            except Exception: j={}
+            DIRECTOR.auto=bool(j.get('on',True)); ok=True
+        elif s.path.startswith(('/api/task','/api/episode')):
             n=int(s.headers.get('Content-Length',0))
             try: j=json.loads(s.rfile.read(n).decode())
             except Exception: j={}
