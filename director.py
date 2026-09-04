@@ -1,15 +1,15 @@
-import json, time, os, sys, random, shutil, socket, threading, webbrowser
+import json, time, os, sys, random, shutil, socket, threading, webbrowser, math, zlib
 import requests
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime, timedelta
 
-__version__="5.0.0"
+__version__="6.0.0"
 if getattr(sys,'frozen',False):
     BASE_DIR=os.path.dirname(sys.executable); RES_DIR=sys._MEIPASS
 else:
     BASE_DIR=os.path.dirname(os.path.abspath(__file__)); RES_DIR=BASE_DIR
 DATA_DIR=os.path.join(BASE_DIR,'himym_data')
-for d in [DATA_DIR, DATA_DIR+'/personas', DATA_DIR+'/outputs', DATA_DIR+'/inbox']:
+for d in [DATA_DIR, DATA_DIR+'/personas', DATA_DIR+'/outputs', DATA_DIR+'/inbox', DATA_DIR+'/guests']:
     os.makedirs(d, exist_ok=True)
 
 DEFAULT_PERSONAS={
@@ -18,16 +18,23 @@ DEFAULT_PERSONAS={
  "marshall":{"persona":"Loyal lawyer, kind-hearted, loves his wife, monster enthusiast."},
  "lily":{"persona":"Matchmaker, artist, loves wine, friendly manipulation, fierce protector."},
  "robin":{"persona":"Independent Canadian news anchor, loves scotch, hates commitment."}}
+DEFAULT_GUESTS={
+ "carl":{"persona":"MacLaren's bartender. Dry wit, hates Barney's schemes, pours anyway.","role":"bartender"},
+ "tracy":{"persona":"The Mother. Sweet, plays bass, perfect timing, loves bad jokes.","role":"bass / destiny","long":True}}
 QUIPS={
  "ted":["Kids, this is a great story.","Architecture is frozen music.","It's destiny!"],
  "barney":["Suit up!","Wait for it...","LEGENDARY!","Challenge accepted."],
  "marshall":["Lily would love this!","Sandwich? Anyone?","This is serious business."],
  "lily":["This needs wine.","I'm matchmaking, obviously.","Marshall, look at me!"],
- "robin":["I need scotch. Now.","Back in Canada...","This is fine."]}
+ "robin":["I need scotch. Now.","Back in Canada...","This is fine."],
+ "carl":["Tab's due, Stinson.","Last call was ten minutes ago."],
+ "tracy":["Someone's been practicing that joke, huh?","I'll bass-solutely handle it."]}
 AUTO_TASKS=["Plan a legendary party for Friday","Write Ted's pitch for the GNB building",
  "Draft the official slap bet contract","Research: best scotch under $50",
  "Design a redecoration for the apartment","Write a toast for the booth anniversary",
  "Marketing slogan for MacLaren's wing night","Fact-check Barney's playbook claims"]
+WEEK=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+SCHED={'Tuesday':('Wing Night','wings'),'Friday':('Legendary Friday','legendary_party'),'Sunday':('Brunch at the apartment','brunch')}
 EPISODES=[
  {"id":"slapsgiving","title":"Slapsgiving","weather":"snow","acts":[
    {"focus":"barney","loc":"Booth","lines":[("barney","I hereby declare: no slaps this Slapsgiving.")]},
@@ -50,6 +57,9 @@ EPISODES=[
    {"focus":"barney","loc":"Booth","lines":[("barney","...Challenge accepted.")],
     "end":"Kids, never let them watch you revise the playbook."}]}
 ]
+
+def tok(s): return [w for w in ''.join(c if c.isalnum() else ' ' for c in (s or '')).lower().split() if len(w)>3]
+
 class HIMYMDirector:
     def __init__(self):
         self.data_file=DATA_DIR+'/sim_data.json'; self.memory_file=DATA_DIR+'/memory_store.json'
@@ -60,12 +70,11 @@ class HIMYMDirector:
         self.llm_url="http://127.0.0.1:3001/v1/chat/completions"
         self.llm_key=os.environ.get("HIMYM_LLM_KEY","")
         _kf=os.path.join(DATA_DIR,"llm_key.txt")
-        if not self.llm_key and os.path.exists(_kf):
-            self.llm_key=open(_kf).read().strip()
+        if not self.llm_key and os.path.exists(_kf): self.llm_key=open(_kf).read().strip()
         self.sim_start=datetime.now(); self.time_scale=30; self.tick=0; self.day=1
         self.weather='clear'; self.memory={}; self.ep=None; self.recap=None; self.recap_n=0
         self.stats={'tasks_done':0,'reviews':0,'revisions':0,'total_slaps':0,'total_legendary':0}
-        self.achievements={k:False for k in ['first_slap','slap_10','all_legendary','playbook_used','first_ship','ship_10']}
+        self.achievements={k:False for k in ['first_slap','slap_10','all_legendary','playbook_used','first_ship','ship_10','group_photo','full_house']}
         self.collab={a:{b:0 for b in self.agents} for a in self.agents}
         self.relationships={
             "ted":{"barney":75,"marshall":90,"lily":85,"robin":70},
@@ -73,8 +82,8 @@ class HIMYMDirector:
             "marshall":{"ted":90,"barney":60,"lily":100,"robin":75},
             "lily":{"ted":85,"barney":65,"marshall":100,"robin":80},
             "robin":{"ted":70,"barney":55,"marshall":75,"lily":80}}
-        self.tasks=[]; self.events=[]; self.auto=True
-        self.load_persistent()
+        self.guests={}; self.tasks=[]; self.events=[]; self.auto=True
+        self.load_persistent(); self.scan_guests()
         if os.path.exists(self.tasks_file):
             try: self.tasks=json.load(open(self.tasks_file))
             except Exception: pass
@@ -91,11 +100,57 @@ class HIMYMDirector:
     def save_persistent(self):
         json.dump(self.relationships, open(self.rel_file,'w'), indent=2)
         json.dump({'achievements':self.achievements,'stats':self.stats}, open(self.ach_file,'w'), indent=2)
-
     def log(self,m): self.events.append({'t':datetime.now().strftime('%H:%M:%S'),'m':m}); print('  ⚡',m)
     def unlock(self,k):
         if not self.achievements.get(k): self.achievements[k]=True; self.log(f'🏆 Achievement: {k}!')
     def save_tasks(self): json.dump(self.tasks, open(self.tasks_file,'w'), indent=2)
+
+    # ---------- guest stars (community-extensible cast) ----------
+    def scan_guests(self):
+        for f in sorted(os.listdir(DATA_DIR+'/guests')):
+            if f.endswith('.json'):
+                n=f[:-5]
+                if n not in self.guests:
+                    try: data=json.load(open(DATA_DIR+'/guests/'+f))
+                    except Exception: continue
+                    i=zlib.crc32(n.encode())
+                    P=['#c84c46','#547aa8','#4fa16a','#d99a2b','#9370db','#d7607e','#4a6fa5','#8a5a3a']
+                    self.guests[n]={'label':n.capitalize(),'role':data.get('role','guest star'),
+                        'persona':data.get('persona','A familiar face from the bar.'),
+                        'long':bool(data.get('long')),
+                        'skin':['#e6b88d','#edc195','#e7bb91','#8d5a3b'][i%4],'hair':P[(i>>3)%8],
+                        'jacket':P[i%8],'shirt':'#f2f4f6','pants':'#273344','h':.98+((i>>6)%3)*.06}
+                    for a in list(self.relationships)+[n]:
+                        self.relationships.setdefault(a,{})
+                        self.relationships[a].setdefault(n, 60 if a!=n else 0)
+                    self.relationships.setdefault(n,{n:0})
+                    for a in self.relationships[n]: pass
+                    for a in self.agents+list(self.guests): self.relationships[n].setdefault(a,62)
+                    self.collab.setdefault(n,{a:0 for a in self.agents})
+                    self.log(f'🌟 guest star hired: {n}!')
+                    if len(self.agents)+len(self.guests)>=7: self.unlock('full_house')
+    @property
+    def cast_names(self): return self.agents+list(self.guests)
+
+    # ---------- memory palace (TF-IDF semantic recall) ----------
+    def search_memory(self,query,k=2):
+        docs=[(a,m) for a in self.cast_names for m in self.memory.get(a,[])]
+        qw=set(tok(query))
+        if not qw or not docs: return []
+        df={}
+        for a,m in docs:
+            s=set(tok(m.get('dialogue','')))
+            for w in qw:
+                if w in s: df[w]=df.get(w,0)+1
+        N=len(docs); best=[]
+        for a,m in docs:
+            s=tok(m.get('dialogue','')); sc=0
+            for w in qw:
+                tf=s.count(w)
+                if tf: sc+=tf*math.log(1+N/df.get(w,1))
+            if sc>0: best.append((sc,a,m))
+        best.sort(key=lambda x:-x[0]); return best[:k]
+
     def add_task(self,text,src='user'):
         tid=max([t['id'] for t in self.tasks],default=0)+1
         self.tasks.append({'id':tid,'text':text,'stage':'queued','worker':None,'reviewer':None,'draft':'','review':'','revisions':0})
@@ -109,51 +164,57 @@ class HIMYMDirector:
     def tod(self):
         h=(self.sim_start+timedelta(seconds=self.tick*self.time_scale)).hour
         return 'morning' if 6<=h<12 else 'afternoon' if 12<=h<17 else 'evening' if 17<=h<21 else 'night'
+    def weekday(self): return WEEK[(self.day-1)%7]
     def persona(self,n):
+        if n in self.guests: return self.guests[n]['persona']
         try: return json.load(open(DATA_DIR+f'/personas/{n}.json'))['persona']
-        except Exception: return DEFAULT_PERSONAS[n]['persona']
+        except Exception: return DEFAULT_PERSONAS.get(n,{}).get('persona','A loyal friend.')
     def llm(self,agent,prompt):
+        if not self.llm_key: return None
         try:
-            if not self.llm_key: return None
             r=requests.post(self.llm_url,headers={"Authorization":f"Bearer {self.llm_key}"},
                 json={"model":"local-model","messages":[{"role":"system","content":self.persona(agent)},{"role":"user","content":prompt}]},timeout=2)
             if r.status_code==200: return r.json()['choices'][0]['message']['content'].strip().strip('"')
         except Exception: pass
         return None
-    def recall_line(self,name):
-        mem=self.memory.get(name,[])
-        if mem and random.random()<0.35:
-            m=random.choice(mem[-8:])
-            return f"Remember when I was {m.get('status','chilling')} in {m.get('sub','the bar')}? Good times."
-        return random.choice(QUIPS[name])
+    def recall_line(self,name,context):
+        hits=self.search_memory(context,1)
+        if hits and random.random()<0.5:
+            a,m=hits[0][1],hits[0][2]
+            return f"Still thinking about when {a} was {m.get('status','hanging')} in {m.get('sub','the bar')}."
+        return random.choice(QUIPS.get(name,["..."]))
     def update_rel(self,a,b,d):
         for x,y in ((a,b),(b,a)):
             if x in self.relationships and y in self.relationships[x]:
                 self.relationships[x][y]=max(0,min(100,self.relationships[x][y]+d))
-
-    # ---------- WORK PIPELINE (reviewer chosen by friendship) ----------
     def pick_worker(self,text):
         t=text.lower()
         if any(k in t for k in ['design','art','decor','paint']): return 'lily'
         if any(k in t for k in ['legal','contract','law','risk']): return 'marshall'
         if any(k in t for k in ['research','fact','news','scotch']): return 'robin'
+        if any(k in t for k in ['bartender','pour','tap','wing']): return 'carl' if 'carl' in self.guests else 'barney'
+        if any(k in t for k in ['music','bass','song','umbrella']): return 'tracy' if 'tracy' in self.guests else 'ted'
         if any(k in t for k in ['party','legend','market','pitch','slogan','toast']): return 'barney'
         return 'ted'
     def pick_reviewer(self,w):
-        return max([a for a in self.agents if a!=w], key=lambda a: self.relationships.get(w,{}).get(a,0))
+        return max([a for a in self.cast_names if a!=w], key=lambda a: self.relationships.get(w,{}).get(a,0))
     def fb_draft(self,w,text):
         L={'ted':['Design concept: symmetry + destiny','Materials: brick, glass, heart','Timeline: worth the wait'],
         'barney':['Hook: it\'s going to be LEGENDARY','Audience: everyone awesome','CTA: suit up immediately'],
         'marshall':['Clause 1: be excellent to each other','Clause 2: sandwiches mandatory','Risk assessment: low, vibes high'],
         'lily':['Palette: warm yellow + red','Mood: cozy, slightly chaotic','Final touch: wine'],
-        'robin':['Fact: sources say yes','Counterpoint: whatever, scotch','Verdict: fine, it works']}
+        'robin':['Fact: sources say yes','Counterpoint: whatever, scotch','Verdict: fine, it works'],
+        'carl':['Pour first, paperwork later','House special: whatever\'s cheapest','No tab, no talk'],
+        'tracy':['Verse one: keep it honest','Bridge: a little bad joke','Final chorus: yellow umbrella']}
         return '\n'.join('- '+l for l in L.get(w,L['ted']))+f'\n(re: {text[:80]})'
     def fb_review(self,rv,first):
         if rv=='marshall': return random.choice(['APPROVE: legally airtight. Also, awesome.','REVISE: needs a sandwich clause.']) if first else 'APPROVE: good enough for my court.'
+        if rv in self.guests: return random.choice(['APPROVE: house approves.','REVISE: one more pass, sweetheart.'])
         return random.choice(['APPROVE: chef\'s kiss.','REVISE: more wine, less beige.']) if first else 'APPROVE: fine, I love it.'
 
+    # ---------- work pipeline (envelope fx) ----------
     def step_tasks(self):
-        applies=[]
+        applies=[]; fx=[]
         if self.auto and not self.ep and not [t for t in self.tasks if t['stage']!='done'] and random.random()<0.5:
             self.add_task(random.choice(AUTO_TASKS),'auto')
         for t in self.tasks:
@@ -162,25 +223,29 @@ class HIMYMDirector:
                 t['worker']=self.pick_worker(t['text']); t['stage']='drafting'
                 applies.append((t['worker'],'Working',f'On it: {t["text"][:40]}')); self.log(f'🎯 task #{t["id"]} → {t["worker"]}')
             elif t['stage']=='drafting':
-                t['draft']=self.llm(t['worker'],f'Draft this in character, 3 short bullets: {t["text"]}') or self.fb_draft(t['worker'],t['text'])
+                mem=self.search_memory(t['text'],1)
+                hint=f" Relevant memory: {mem[0][2]['dialogue'][:120]}" if mem else ""
+                t['draft']=self.llm(t['worker'],f'Draft this in character, 3 short bullets: {t["text"]}.{hint}') or self.fb_draft(t['worker'],t['text'])
                 t['reviewer']=self.pick_reviewer(t['worker']); t['stage']='reviewing'; self.stats['reviews']+=1
+                fx.append({'k':'env','a':t['worker'],'b':t['reviewer']})
                 applies+=[(t['worker'],'Chatting','Draft sent for review.'),(t['reviewer'],'Working','Reviewing the draft...')]
-                self.log(f'📝 #{t["id"]} drafted by {t["worker"]} → review by {t["reviewer"]} (friendship {self.relationships[t["worker"]][t["reviewer"]]})')
             elif t['stage']=='reviewing':
                 t['review']=self.llm(t['reviewer'],f'Start with APPROVE or REVISE, then one in-character sentence. Draft: {t["draft"][:300]}') or self.fb_review(t['reviewer'],t['revisions']==0)
                 if t['review'].upper().startswith('APPROVE') or t['revisions']>=1:
                     t['stage']='done'; self.stats['tasks_done']+=1
-                    self.update_rel(t['worker'],t['reviewer'],2)                 # shipping builds friendship
-                    self.collab[t['worker']][t['reviewer']]+=1; self.collab[t['reviewer']][t['worker']]+=1
+                    self.update_rel(t['worker'],t['reviewer'],2)
+                    self.collab.setdefault(t['worker'],{}).setdefault(t['reviewer'],0); self.collab[t['worker']][t['reviewer']]+=1
+                    self.collab.setdefault(t['reviewer'],{}).setdefault(t['worker'],0); self.collab[t['reviewer']][t['worker']]+=1
                     self.unlock('first_ship')
                     if self.stats['tasks_done']>=10: self.unlock('ship_10')
                     fn=f'task_{t["id"]:03d}_{t["worker"]}.md'
                     open(os.path.join(self.outputs_dir,fn),'w',encoding='utf-8').write(
                         f'# Task {t["id"]}: {t["text"]}\n\n## Draft by {t["worker"]}\n{t["draft"]}\n\n## Review by {t["reviewer"]}\n{t["review"]}\n')
+                    fx.append({'k':'ship','a':t['reviewer']})
                     applies+=[(t['worker'],'Legendary-ing','Done! Saved to outputs.'),(t['reviewer'],'Chatting',t['review'][:60])]
                     self.log(f'✅ #{t["id"]} approved → outputs/{fn}')
                     if any(k in t['text'].lower() for k in ['party','legend']) and not self.ep and random.random()<0.35:
-                        self.start_episode('legendary_party')                    # work triggers episode
+                        self.start_episode('legendary_party')
                 else:
                     t['revisions']+=1; self.stats['revisions']+=1; t['stage']='revising'
                     self.update_rel(t['worker'],t['reviewer'],-1)
@@ -188,9 +253,9 @@ class HIMYMDirector:
             elif t['stage']=='revising':
                 t['draft']=(self.llm(t['worker'],f'Improve using feedback. Feedback: {t["review"][:200]} Draft: {t["draft"][:200]}') or t['draft']+'\n- revised: addressed all notes')
                 t['stage']='reviewing'
-        self.save_tasks(); return applies
+        self.save_tasks(); return applies,fx
 
-    # ---------- EPISODE ENGINE (wraps spawn follow-up work) ----------
+    # ---------- episodes ----------
     def start_episode(self,eid):
         ep=next((e for e in EPISODES if e['id']==eid),None)
         if ep and not self.ep:
@@ -200,14 +265,15 @@ class HIMYMDirector:
         e=self.ep; acts=e['d']['acts']; act=acts[e['act']]; fx=[]
         if e['tick']==0:
             for name,line in act['lines']:
-                agent_data[name]['status']='Chatting'; agent_data[name]['last_dialogue']=line; agent_data[name]['sub_location']=act['loc']
+                if name in agent_data:
+                    agent_data[name]['status']='Chatting'; agent_data[name]['last_dialogue']=line; agent_data[name]['sub_location']=act['loc']
             if act.get('fx')=='slap':
-                fx.append('slap'); self.stats['total_slaps']+=1; self.update_rel('marshall','barney',-10)
+                fx.append({'k':'slap'}); self.stats['total_slaps']+=1; self.update_rel('marshall','barney',-10)
                 self.unlock('first_slap')
                 if self.stats['total_slaps']>=10: self.unlock('slap_10')
                 self.log(f'👋 SLAP! (total {self.stats["total_slaps"]})')
             if act.get('fx')=='confetti':
-                fx.append('confetti'); self.stats['total_legendary']+=1; self.unlock('all_legendary')
+                fx.append({'k':'confetti'}); self.stats['total_legendary']+=1; self.unlock('all_legendary')
             if e['d']['id']=='playbook': self.unlock('playbook_used')
             self.log(f'🎬 {e["d"]["title"]} — act {e["act"]+1}/{len(acts)}')
         e['tick']+=1
@@ -217,45 +283,63 @@ class HIMYMDirector:
             if e['act']>=len(acts):
                 self.recap_n+=1
                 self.recap={'n':self.recap_n,'title':e['d']['title'],'line':act.get('end',''),'day':self.day}
-                self.add_task(f"Write a recap toast for '{e['d']['title']}'",'episode')   # episode triggers work
-                self.ep=None; self.log('🎬 episode wrapped → follow-up task queued')
+                fx.append({'k':'photo'})
+                self.add_task(f"Write a recap toast for '{e['d']['title']}'",'episode')
+                self.ep=None; self.log('🎬 episode wrapped → follow-up task + polaroid')
         return out,fx
 
     # ---------- main loop ----------
     def run_simulation(self):
-        print(f'🎬 HIMYM engine v{__version__} — workflow × episodes, fully integrated. Close window to stop.\n')
+        print(f'🎬 HIMYM engine v{__version__} — guest stars · memory palace · weekly schedule. Close window to stop.\n')
         while True:
             try:
                 self.tick+=1
+                if self.tick%20==0: self.scan_guests()
                 if self.tick%48==1:
-                    self.day+=1; self.log(f'🌅 day {self.day} begins')
+                    self.day+=1; self.log(f'🌅 day {self.day} — {self.weekday()}')
                     self.weather='rain' if random.random()<0.3 else 'clear'
                 tod=self.tod(); self.scan_inbox()
                 loc='MacLarens' if tod in('evening','night') else 'Apartment'
                 if random.random()<0.12: loc='Apartment' if loc=='MacLarens' else 'MacLarens'
                 with open(self.memory_file) as f: self.memory=json.load(f)
                 agent_data={}
-                for a in self.agents:
+                for a in self.cast_names:
                     agent_data[a]={'status':random.choice(['Idle','Drinking','Chatting'] if tod in('evening','night') else ['Idle','Working','Chatting']),
-                        'sub_location':random.choice(self.locations[loc]),'last_dialogue':self.recall_line(a),
+                        'sub_location':random.choice(self.locations[loc]),'last_dialogue':self.recall_line(a,f"{tod} at {loc}"),
                         'memory':self.memory.get(a,[])[-3:],'conversation_partner':None,'time_of_day':tod}
                 fx=[]
-                for name,status,dlg in self.step_tasks():
-                    agent_data[name]['status']=status; agent_data[name]['last_dialogue']=dlg
+                applies,fx2=self.step_tasks(); fx+=fx2
+                for name,status,dlg in applies:
+                    if name in agent_data: agent_data[name]['status']=status; agent_data[name]['last_dialogue']=dlg
+                # weekly schedule heartbeat
+                if tod=='evening' and not self.ep:
+                    ev=SCHED.get(self.weekday())
+                    if ev and random.random()<0.5:
+                        if ev[1]=='wings':
+                            for a in agent_data: agent_data[a]['status']='Drinking'
+                            fx.append({'k':'confetti'}); self.log('🍗 Wing Night at MacLaren\'s!')
+                        elif ev[1]=='brunch':
+                            for a in agent_data: agent_data[a]['sub_location']='LivingRoom'; agent_data[a]['status']='Chatting'
+                            self.log('🥞 Brunch at the apartment!')
+                        else: self.start_episode(ev[1])
                 ep_out=None
                 if self.auto and not self.ep and random.random()<0.10:
                     self.start_episode(random.choice(EPISODES)['id'])
                 if self.ep:
                     ep_out,efx=self.step_episode(agent_data); fx+=efx
+                # group photo detection
+                if len(set(x['sub_location'] for x in agent_data.values()))==1 and self.tick%5==0:
+                    fx.append({'k':'photo'}); self.unlock('group_photo'); self.log('📸 group photo!')
                 json.dump({'location':loc,'agents':agent_data,'logs':self.events[-20:],'stats':self.stats,
                     'collab':self.collab,'relationships':self.relationships,'achievements':self.achievements,
+                    'guests':self.guests,'memory_all':{a:self.memory.get(a,[])[-10:] for a in self.cast_names},
                     'tasks':[{'id':t['id'],'text':t['text'],'stage':t['stage'],'worker':t['worker'],'reviewer':t['reviewer']} for t in self.tasks[-8:]],
-                    'episode':ep_out,'recap':self.recap,'fx':fx,'day':self.day,
+                    'episode':ep_out,'recap':self.recap,'fx':fx,'day':self.day,'weekday':self.weekday(),
                     'weather':(self.ep and self.ep['d'].get('weather')) or self.weather,
                     'sim_time':(self.sim_start+timedelta(seconds=self.tick*self.time_scale)).isoformat(),'time_of_day':tod},
                     open(self.data_file,'w'), indent=2)
                 self.save_persistent()
-                print(f'📍 {loc} ({tod}) day {self.day} | ships:{self.stats["tasks_done"]} slaps:{self.stats["total_slaps"]}')
+                print(f'📍 {loc} ({tod}) {self.weekday()} | cast:{len(self.cast_names)} ships:{self.stats["tasks_done"]}')
                 time.sleep(3)
             except KeyboardInterrupt: print('\n👋 Stopped.'); self.save_persistent(); break
             except Exception as e: print('⚠️',e); time.sleep(2)
@@ -276,7 +360,7 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(s):
         if s.path.startswith('/api/health'):
             s.send_response(200); s.send_header('Content-Type','application/json'); s.end_headers()
-            s.wfile.write(json.dumps({'ok':True,'version':__version__,'day':DIRECTOR.day}).encode())
+            s.wfile.write(json.dumps({'ok':True,'version':__version__,'day':DIRECTOR.day,'cast':DIRECTOR.cast_names}).encode())
         else: super().do_GET()
 
 def setup_assets():
@@ -285,6 +369,9 @@ def setup_assets():
         if os.path.exists(src): shutil.copy(src, os.path.join(DATA_DIR,f))
     for n,p in DEFAULT_PERSONAS.items():
         dst=DATA_DIR+f'/personas/{n}.json'
+        if not os.path.exists(dst): json.dump(p,open(dst,'w'),indent=2)
+    for n,p in DEFAULT_GUESTS.items():
+        dst=DATA_DIR+f'/guests/{n}.json'
         if not os.path.exists(dst): json.dump(p,open(dst,'w'),indent=2)
 
 if __name__=='__main__':
@@ -295,6 +382,6 @@ if __name__=='__main__':
         except OSError: continue
     httpd=HTTPServer(("127.0.0.1",port),Handler)
     threading.Thread(target=httpd.serve_forever,daemon=True).start()
-    print('='*56); print(f'  HIMYM PIXEL FLOOR v{__version__} — THE CROSSOVER RELEASE'); print(f'  http://localhost:{port}/dashboard.html'); print('='*56)
+    print('='*56); print(f'  HIMYM PIXEL FLOOR v{__version__} — THE GUEST STAR RELEASE'); print(f'  http://localhost:{port}/dashboard.html'); print('='*56)
     threading.Timer(1.2,lambda:webbrowser.open(f'http://localhost:{port}/dashboard.html')).start()
     DIRECTOR.run_simulation(); httpd.shutdown()

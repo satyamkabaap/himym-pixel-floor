@@ -1,4 +1,10 @@
 # Changelog
+## v6.0.0 — The Guest Star Release
+Guest-star system (drop-a-JSON hires), TF-IDF memory palace + search UI,
+work-envelope flight animations, polaroid album (persisted), voice input,
+weekly sitcom schedule (Wing Night / Legendary Friday / Brunch),
+group-photo & full-house achievements.
+
 ## v5.0.1 — The Documentation Release
 Added comprehensive documentation (README, ARCHITECTURE, DESIGN), CI/CD workflows, and release automation.
 Updated CONTRIBUTING.md and added PULL_REQUEST_TEMPLATE.

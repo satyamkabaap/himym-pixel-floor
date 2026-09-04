@@ -1,7 +1,7 @@
 ; Inno Setup script for HIMYM Harness
-; Version 5.0.0
+; Version 6.0.0
 #define MyAppName "HIMYM Harness"
-#define MyAppVersion "5.0.0"
+#define MyAppVersion "6.0.0"
 #define MyAppPublisher "HIMYM Project"
 #define MyAppURL "http://example.com/"
 #define MyAppExe "director.py"
@@ -11,10 +11,10 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
-DefaultDirName={autopf}\{#MyAppName}
+DefaultDirName={autopf}\\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-OutputBaseFilename=HIMYMHarness-5.0.0
+OutputBaseFilename=HIMYMHarness-6.0.0
 Compression=lzma
 SolidCompression=yes
 
@@ -26,14 +26,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "director.py"; DestDir: "{app}"; Flags: ignoreversion
-Source: "himym_data\*"; DestDir: "{app}\himym_data"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "himym_data\*"; DestDir: "{app}\\himym_data"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dashboard.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "floor_day.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "floor_night.png"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
+Name: "{group}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExe}"
+Name: "{commondesktop}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExe}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
