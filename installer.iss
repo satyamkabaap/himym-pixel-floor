@@ -1,7 +1,7 @@
 ; Inno Setup script for HIMYM Harness
 ; Version 7.0.0
 #define MyAppName "HIMYM Harness"
-#define MyAppVersion "9.0.0"
+#define MyAppVersion "10.0.0"
 #define MyAppPublisher "HIMYM Project"
 #define MyAppURL "http://example.com/"
 #define MyAppExe "director.py"
@@ -14,7 +14,7 @@ AppPublisherURL={#MyAppURL}
 DefaultDirName={autopf}\\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-OutputBaseFilename=HIMYMHarness-7.0.0
+OutputBaseFilename=HIMYMHarness-10.0.0
 Compression=lzma
 SolidCompression=yes
 

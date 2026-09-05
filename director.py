@@ -6,7 +6,7 @@ import requests
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime, timedelta
 
-__version__="10.0.0"
+__version__ = "10.0.0"
 if getattr(sys,'frozen',False):
     BASE_DIR=os.path.dirname(sys.executable); RES_DIR=sys._MEIPASS
 else:
@@ -311,7 +311,6 @@ class HIMYMDirector:
         print(f'🎬 HIMYM harness v{__version__} running. Ctrl+C to stop.\n')
         while self.running:
             if self.paused: time.sleep(0.5); continue
-            if self.paused: time.sleep(0.5); continue
             try:
                 self.tick+=1
                 if self.tick%20==0: self.scan_guests()
@@ -425,23 +424,18 @@ class Handler(SimpleHTTPRequestHandler):
             try: j=json.loads(s.rfile.read(n).decode())
             except Exception: j={}
             DIRECTOR.speed=float(j.get('mult',1)); DIRECTOR.paused=bool(j.get('paused',False)); ok=True
-        elif s.path.startswith(('/api/task','/api/episode')):
+        elif s.path.startswith('/api/control'):
             n=int(s.headers.get('Content-Length',0))
             try: j=json.loads(s.rfile.read(n).decode())
             except Exception: j={}
-            if s.path.startswith('/api/task') and (j.get('text') or '').strip():
-                ok=bool(DIRECTOR.add_task(j['text'].strip(),'ui'))
-            else:
-                ok=DIRECTOR.start_episode(j.get('id',''))
-        s.send_response(200); s.send_header('Content-Type','application/json'); s.end_headers()
-        s.wfile.write(json.dumps({'ok':bool(ok)}).encode())
-    def do_POST(s):
-        ok=False
-        if s.path.startswith('/api/auto'):
-            n=int(s.headers.get('Content-Length',0))
-            try: j=json.loads(s.rfile.read(n).decode())
-            except Exception: j={}
-            DIRECTOR.auto=bool(j.get('on',True)); ok=True
+            a=j.get('agent','')
+            if j.get('take'): DIRECTOR.controlled=a; DIRECTOR.audit_log(f"CONTROL TAKEN · {a}",'control')
+            elif j.get('release'): DIRECTOR.controlled=None; DIRECTOR.audit_log(f"CONTROL RELEASED · {a}",'control')
+            elif a and (j.get('move') or j.get('status')):
+                DIRECTOR.overrides[a]={'sub':j.get('move'),'status':j.get('status')}
+                DIRECTOR.audit_log(f"OVERRIDE · {a}",'control')
+            if j.get('task'): DIRECTOR.add_task(j['task'],'you',a or None)
+            ok=True
         elif s.path.startswith(('/api/task','/api/episode')):
             n=int(s.headers.get('Content-Length',0))
             try: j=json.loads(s.rfile.read(n).decode())
