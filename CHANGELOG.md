@@ -1,4 +1,9 @@
 # Changelog
+## v10.0.0 — The Coworker Release
+OpenBot-inspired governance, ported natively: live per-agent work screens
+(typewriter drafts/reviews), human take-the-wheel with hand-back, and a full
+audit trail (PERMITTED / RECORDED / STEERED / CONTROL) with its own tab.
+
 ## v9.0.0 — The Broadcast Release
 Cold-open intro, cinema mode (letterbox + grain), episode title cards, 3 themes,
 sim speed/pause, character drawer with relationship bars, live kanban, keyboard

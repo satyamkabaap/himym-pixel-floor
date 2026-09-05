@@ -94,6 +94,7 @@ class HIMYMDirector:
         self.guests={}; self.tasks=[]; self.events=[]; self.auto=cfg.get('auto',True)
         self.last_group_photo=0
         self.speed=1.0; self.paused=False
+        self.audit=[]; self.controlled=None; self.overrides={}; self.persist_agents={}
         self.load_persistent(); self.scan_guests()
         if os.path.exists(self.tasks_file):
             try: self.tasks=json.load(open(self.tasks_file,encoding='utf-8'))
@@ -324,14 +325,34 @@ class HIMYMDirector:
                 with open(self.memory_file,encoding='utf-8') as f: self.memory=json.load(f)
                 agent_data={}
                 for a in self.cast_names:
-                    agent_data[a]={'status':random.choice(['Idle','Drinking','Chatting'] if tod in('evening','night') else ['Idle','Working','Chatting']),
-                        'sub_location':random.choice(self.locations[loc]),'last_dialogue':self.recall_line(a,f"{tod} at {loc}"),
-                        'memory':self.memory.get(a,[])[-3:],'conversation_partner':None,'time_of_day':tod}
+                    if a==self.controlled and a in self.persist_agents:
+                        agent_data[a]=dict(self.persist_agents[a]); agent_data[a]['time_of_day']=tod
+                    else:
+                        agent_data[a] = {
+                            'status': random.choice(['Idle','Drinking','Chatting'] if tod in('evening','night') else ['Idle','Working','Chatting']),
+                            'sub_location': random.choice(self.locations[loc]),
+                            'last_dialogue': self.recall_line(a, f'{tod} at {loc}'),
+                            'memory': self.memory.get(a, [])[-3:],
+                            'conversation_partner': None,
+                            'time_of_day': tod
+                        }
+                for a,ov in list(self.overrides.items()):
+                    if a in agent_data:
+                        if ov.get('sub'): agent_data[a]['sub_location']=ov['sub']; agent_data[a]['last_dialogue']='(under your control) heading to '+ov['sub']
+                        if ov.get('status'): agent_data[a]['status']=ov['status']
+                self.overrides.clear()
                 fx=[]
                 with self.lock:
                     applies,fx2=self.step_tasks(); fx+=fx2
                     for name,status,dlg in applies:
                         if name in agent_data: agent_data[name]['status']=status; agent_data[name]['last_dialogue']=dlg
+                    screens={}
+                    for t in self.tasks:
+                        if t['stage'] in ('drafting','revising') and t.get('worker'):
+                            screens[t['worker']]=f"$ {t['worker']} drafting #{t['id']}…\n"+(t['draft'] or '…thinking…')
+                        if t['stage']=='reviewing' and t.get('reviewer'):
+                            screens[t['reviewer']]=f"$ reviewing #{t['id']}\n"+(t['draft'] or '')+"\n--- verdict: "+(t['review'] or '…reading…')
+                    for a in agent_data: agent_data[a]['screen']=screens.get(a,'')
                     if tod=='evening' and not self.ep:
                         ev=SCHED.get(self.weekday())
                         if ev and random.random()<0.5:
@@ -350,6 +371,7 @@ class HIMYMDirector:
                 if len(set(x['sub_location'] for x in agent_data.values()))==1 and self.tick-self.last_group_photo>20:
                                     self.last_group_photo=self.tick
                                     fx.append({'k':'photo'}); self.unlock('group_photo'); self.log('📸 group photo!')
+                self.persist_agents={a:agent_data[a] for a in agent_data}
                 atomic_json(self.data_file, {
                     'location': loc,
                     'agents': agent_data,

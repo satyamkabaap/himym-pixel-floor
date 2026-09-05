@@ -47,6 +47,7 @@ markdown deliverable in `himym_data/outputs/`.
 | **Memory that survives** | Markdown-first memory store persists across runs and sessions. |
 | **One-click installer** | Inno Setup wizard, per-user install, desktop icon, uninstaller. |
 | **Zero telemetry** | Everything runs on your machine. Nothing phones home. Ever. |
+| 🎮 Take the wheel | Pause-free human takeover: drive any character, assign work, hand back — every action audited |
 
 ## Quick start
 
@@ -117,6 +118,7 @@ fallback dialogue, new floor props, new events, translations.
 - Floor art: AI-generated for this project; sprites drawn procedurally.
 - Fonts: Pixelify Sans & VT323 (SIL OFL).
 - Inspired by [`chaitanyagiri/munder-difflin`](https://github.com/chaitanyagiri/munder-difflin).
+   - Governance & coworker-screen concepts: CopilotKit *OpenBot* (MIT).
 
 _An affectionate fan parody. Not affiliated with CBS, 20th Television, or the
 creators of How I Met Your Mother._
