@@ -18,3 +18,4 @@ installer_output/
 # secrets
 llm_key.txt
 .env
+himym_data/llm_key.txt

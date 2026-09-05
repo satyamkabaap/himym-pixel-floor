@@ -19,3 +19,11 @@ Rules:
 - Keys ONLY via env HIMYM_LLM_KEY or himym_data/llm_key.txt (never commit).
 - All JSON writes must use atomic_json().
 - UI changes derive from the cream-paper pixel design tokens.
+
+
+## Agent protocol (v1)
+- Specs arrive as specs/spec-NNN-*.md (or inbox drops). Implement exactly that scope.
+- Commit message: `spec-NNN <short title>`. One spec = one commit.
+- After committing, output: git show --stat + full diff (user forwards to reviewer).
+- Never: add frontend deps, commit keys, break offline fallbacks, rewrite files
+  you weren't asked to (dashboard.html stays modular: ui_plus.js / coworker.js).
