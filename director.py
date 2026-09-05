@@ -429,11 +429,11 @@ class Handler(SimpleHTTPRequestHandler):
             try: j=json.loads(s.rfile.read(n).decode())
             except Exception: j={}
             a=j.get('agent','')
-            if j.get('take'): DIRECTOR.controlled=a; DIRECTOR.audit_log(f"CONTROL TAKEN · {a}",'control')
-            elif j.get('release'): DIRECTOR.controlled=None; DIRECTOR.audit_log(f"CONTROL RELEASED · {a}",'control')
+            if j.get('take'): DIRECTOR.controlled=a; DIRECTOR.log(f"🎮 CONTROL TAKEN · {a}")
+            elif j.get('release'): DIRECTOR.controlled=None; DIRECTOR.log(f"🎮 CONTROL RELEASED · {a}")
             elif a and (j.get('move') or j.get('status')):
                 DIRECTOR.overrides[a]={'sub':j.get('move'),'status':j.get('status')}
-                DIRECTOR.audit_log(f"OVERRIDE · {a}",'control')
+                DIRECTOR.log(f"🎮 OVERRIDE · {a}")
             if j.get('task'): DIRECTOR.add_task(j['task'],'you',a or None)
             ok=True
         elif s.path.startswith(('/api/task','/api/episode')):

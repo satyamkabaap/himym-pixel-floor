@@ -102,9 +102,9 @@ APPROVE: chef's kiss.
 
 - [ ] Slack / Telegram intake (message the booth, get deliverables back)
 - [ ] Parallel workers + task dependencies (kanban v2)
-- [ ] Voice narration — Future Ted reads the terminal (TTS)
-- [ ] Scripted "episodes" — seasonal arcs (Slapsgiving, the wedding)
-- [ ] Custom character plugins (bring your own sitcom)
+- [x] Voice narration — Future Ted reads the terminal (TTS)
+- [x] Scripted "episodes" — seasonal arcs (Slapsgiving, the wedding)
+- [x] Custom character plugins (bring your own sitcom)
 
 ## Contributing
 
