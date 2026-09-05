@@ -25,13 +25,75 @@ let cwAgent=null,tw={agent:null,src:'',pos:0};
 function post(j){fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(j)}).catch(()=>{});}
 /* Agent portrait loading with procedural fallback */
 function loadAgentPortrait(agentName, container){
- // Clear the container
- container.innerHTML='';
-// Try to load the portrait PNG
- const img=new Image();
- img.onload=function(){
-   container.appendChild(img);
- };
+            // Try to load the portrait PNG
+            const img = new Image();
+            img.onload = function() {
+                container.appendChild(img);
+            };
+            img.onerror = function() {
+                // If image fails to load, draw procedural sprite
+                const canvas = document.createElement('canvas');
+                canvas.width = 44; // 22*scale, scale=2
+                canvas.height = 60; // 30*scale
+                const ctx = canvas.getContext('2d');
+
+                // Use CAST colors directly (as requested in review)
+                const colors = {
+                    ted: {jacket: '#547aa8', shirt: '#c84c46', pants: '#273344', skin: '#e6b88d', hair: '#3b261d'},
+                    barney: {jacket: '#222937', shirt: '#f2f4f6', pants: '#161c27', skin: '#edc195', hair: '#e3c36f', tie: '#7a4dcc'},
+                    marshall: {jacket: '#4a7c59', shirt: '#f2f4f6', pants: '#273344', skin: '#edc195', hair: '#3b261d'},
+                    lily: {jacket: '#f9a825', shirt: '#f2f4f6', pants: '#273344', skin: '#edc195', hair: '#6d4c41', dress: '#ffeb3b'},
+                    robin: {jacket: '#d32f2f', shirt: '#f2f4f6', pants: '#273344', skin: '#edc195', hair: '#ef6c00'}
+                };
+
+                const agentColors = colors[agentName] || {jacket: '#547aa8', shirt: '#c84c46', pants: '#273344', skin: '#e6b88d', hair: '#3b261d'};
+                const c = agentColors.jacket || '#547aa8'; // fallback to ted's jacket color
+
+                // Base (paper color)
+                const paper = getComputedStyle(document.body).getPropertyValue('--paper').trim();
+                ctx.fillStyle = paper;
+                ctx.fillRect(0, 0, 22, 30);
+
+                // Outline
+                const ink = getComputedStyle(document.body).getPropertyValue('--ink').trim();
+                ctx.strokeStyle = ink;
+                ctx.lineWidth = 0.5;
+                ctx.strokeRect(0, 0, 22, 30);
+
+                // Jacket
+                ctx.fillStyle = agentColors.jacket;
+                ctx.fillRect(2, 2, 18, 10);
+
+                // Shirt
+                ctx.fillStyle = agentColors.shirt;
+                ctx.fillRect(4, 12, 14, 8);
+
+                // Pants
+                ctx.fillStyle = agentColors.pants;
+                ctx.fillRect(6, 20, 10, 10);
+
+                // Skin (face)
+                ctx.fillStyle = agentColors.skin;
+                ctx.fillRect(8, 4, 6, 6);
+
+                // Hair
+                ctx.fillStyle = agentColors.hair;
+                ctx.fillRect(8, 2, 6, 2);
+
+                // Tie (for barney)
+                if (agentColors.tie) {
+                    ctx.fillStyle = agentColors.tie;
+                    ctx.fillRect(10, 12, 2, 6);
+                }
+
+                // Dress (for lily)
+                if (agentColors.dress) {
+                    ctx.fillStyle = agentColors.dress;
+                    ctx.fillRect(4, 12, 14, 8); // Override shirt area for dress
+                }
+            };
+            img.src = `himym_data/portraits/${agentName}.png`;
+        }
  img.onerror=function(){
    // If image fails to load, draw procedural sprite
    const canvas=document.createElement('canvas');
@@ -86,6 +148,8 @@ C.addEventListener('click',()=>{if(!hover)return;cwAgent=hover;dw.classList.add(
  const p=CAST[hover]||{label:hover,role:'?'};
  const n=document.getElementById('dwName');if(n)n.textContent=p.label.toUpperCase()+(state.controlled===hover?' 🎮':''); 
  const r=document.getElementById('dwRole');if(r)r.textContent=p.role;
+ // Load the portrait for the clicked agent
+ loadAgentPortrait(hover, document.getElementById('dwPortrait'));
  // Load the portrait for the clicked agent
  loadAgentPortrait(hover, document.getElementById('dwPortrait'));
 });
