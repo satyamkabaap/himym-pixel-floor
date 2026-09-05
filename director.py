@@ -6,7 +6,7 @@ import requests
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime, timedelta
 
-__version__="8.1.0"
+__version__="9.0.0"
 if getattr(sys,'frozen',False):
     BASE_DIR=os.path.dirname(sys.executable); RES_DIR=sys._MEIPASS
 else:
@@ -93,6 +93,7 @@ class HIMYMDirector:
             "robin":{"ted":70,"barney":55,"marshall":75,"lily":80}}
         self.guests={}; self.tasks=[]; self.events=[]; self.auto=cfg.get('auto',True)
         self.last_group_photo=0
+        self.speed=1.0; self.paused=False
         self.load_persistent(); self.scan_guests()
         if os.path.exists(self.tasks_file):
             try: self.tasks=json.load(open(self.tasks_file,encoding='utf-8'))
@@ -160,10 +161,10 @@ class HIMYMDirector:
             if sc>0: best.append((sc,a,m))
         best.sort(key=lambda x:-x[0]); return best[:k]
     # ---------- intake ----------
-    def add_task(self,text,src='user'):
+    def add_task(self,text,src="user",worker=None):
         with self.lock:
             tid=max([t['id'] for t in self.tasks],default=0)+1
-            self.tasks.append({'id':tid,'text':text,'stage':'queued','worker':None,'reviewer':None,'draft':'','review':'','revisions':0})
+            self.tasks.append({'id':tid,'text':text,'stage':'queued','worker':worker if worker in self.cast_names else None,'reviewer':None,'draft':'','review':'','revisions':0})
             self.tasks=self.tasks[-12:]; self.save_tasks(); self.log(f'📥 task #{tid} queued ({src}): {text[:60]}'); return tid
     def scan_inbox(self):
         for f in sorted(os.listdir(self.inbox)):
@@ -237,7 +238,7 @@ class HIMYMDirector:
         for t in self.tasks:
             if t['stage']=='done': continue
             if t['stage']=='queued':
-                t['worker']=self.pick_worker(t['text']); t['stage']='drafting'
+                t['worker']=t.get('worker') or self.pick_worker(t['text']); t['stage']='drafting'
                 applies.append((t['worker'],'Working',f'On it: {t["text"][:40]}')); self.log(f'🎯 task #{t["id"]} → {t["worker"]}')
             elif t['stage']=='drafting':
                 mem=self.search_memory(t['text'],1)
@@ -308,6 +309,9 @@ class HIMYMDirector:
     def run_simulation(self):
         print(f'🎬 HIMYM harness v{__version__} running. Ctrl+C to stop.\n')
         while self.running:
+            if self.paused: time.sleep(0.5); continue
+        while self.running:
+            if self.paused: time.sleep(0.5); continue
             try:
                 self.tick+=1
                 if self.tick%20==0: self.scan_guests()
@@ -377,7 +381,7 @@ class HIMYMDirector:
                 })
                 self.save_persistent()
                 print(f'📍 {loc} ({tod}) {self.weekday()} | cast:{len(self.cast_names)} ships:{self.stats["tasks_done"]}')
-                time.sleep(self.cfg.get('tick_seconds',3))
+                time.sleep(max(0.5, self.cfg.get('tick_seconds',3)/max(0.25,self.speed)))
             except KeyboardInterrupt:
                 break
             except Exception as e:
@@ -395,6 +399,11 @@ class Handler(SimpleHTTPRequestHandler):
             try: j=json.loads(s.rfile.read(n).decode())
             except Exception: j={}
             DIRECTOR.auto=bool(j.get('on',True)); ok=True
+        elif s.path.startswith('/api/speed'):
+            n=int(s.headers.get('Content-Length',0))
+            try: j=json.loads(s.rfile.read(n).decode())
+            except Exception: j={}
+            DIRECTOR.speed=float(j.get('mult',1)); DIRECTOR.paused=bool(j.get('paused',False)); ok=True
         elif s.path.startswith(('/api/task','/api/episode')):
             n=int(s.headers.get('Content-Length',0))
             try: j=json.loads(s.rfile.read(n).decode())

@@ -1,4 +1,9 @@
 # Changelog
+## v9.0.0 — The Broadcast Release
+Cold-open intro, cinema mode (letterbox + grain), episode title cards, 3 themes,
+sim speed/pause, character drawer with relationship bars, live kanban, keyboard
+shortcuts, /api/speed, worker-pinned tasks. Repo: issue templates, SECURITY,
+CoC, FUNDING, GitHub Pages landing.
 ## v8.1.0 — Public Release Hardening
 Real auto-mode API, group-photo cooldown, audit-log rotation, requirements.txt, run.bat.
 ## v8.0.0 — The Definitive Harness
