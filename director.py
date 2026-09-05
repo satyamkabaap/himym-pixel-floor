@@ -6,7 +6,7 @@ import requests
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime, timedelta
 
-__version__="9.0.0"
+__version__="10.0.0"
 if getattr(sys,'frozen',False):
     BASE_DIR=os.path.dirname(sys.executable); RES_DIR=sys._MEIPASS
 else:
@@ -311,7 +311,6 @@ class HIMYMDirector:
         print(f'🎬 HIMYM harness v{__version__} running. Ctrl+C to stop.\n')
         while self.running:
             if self.paused: time.sleep(0.5); continue
-        while self.running:
             if self.paused: time.sleep(0.5); continue
             try:
                 self.tick+=1
