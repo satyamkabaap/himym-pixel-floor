@@ -111,10 +111,10 @@ class HIMYMDirector:
     def save_persistent(self):
         atomic_json(self.rel_file,self.relationships)
         atomic_json(self.ach_file,{'achievements':self.achievements,'stats':self.stats})
-    def audit_log(self,m,kind='policy'):
-        self.log(m)
 
     def log(self,m):
+    def audit_log(self,m,kind='policy'):
+        self.log(m)
             e={'t':datetime.now().strftime('%H:%M:%S'),'m':m}; self.events.append(e)
             try:
                 with open(self.event_log,'a',encoding='utf-8') as f: f.write(json.dumps(e,ensure_ascii=False)+'\n')
